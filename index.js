@@ -1,6 +1,7 @@
 // Import your dependencies
 import "dotenv/config.js";
 import Nylas from "nylas";
+import { stripHtml } from "string-strip-html";
 import { Configuration, OpenAIApi } from "openai";
 
 // Configure your Nylas client
@@ -29,34 +30,57 @@ const getMessageList = async () => {
   }
 };
 
-// Pass in a message list and get a list of classified messages
-const classifyMessages = async (messageList) => {
+// Pass in a message list and get a list of summarized messages
+const summarizeMessages = async (messageList) => {
   return Promise.all(
     messageList.map(async (message) => {
-      const { id, date, subject } = message;
+      const { id, date, from, subject, body } = message;
       const formattedDate = new Date(date).toLocaleDateString();
-      const messageLabel = await classifyMessage(message);
+      const cleanedBody = stripHtml(body);
 
-      return { id, formattedDate, subject, messageLabel };
+      try {
+        console.log(`Summarizing message: ${subject}...`);
+        const summary = await summarizeMessage(cleanedBody.result);
+        return {
+          id,
+          formattedDate,
+          from,
+          subject,
+          summary,
+        };
+      } catch (error) {
+        if (error.response) {
+          console.log(error.response.status);
+          console.log(error.response.data);
+        } else {
+          console.log(error.message);
+        }
+
+        return {
+          summary: "Error: Could not summarize message",
+        };
+      }
     })
   );
 };
 
 // Pass a message to GPT
-// Get a string value for whether the user should read and why
-const classifyMessage = async ({ from, subject, snippet }) => {
+// Get a summary back
+const summarizeMessage = async (cleanedMessage) => {
+  if (cleanedMessage.length > 4000) {
+    console.log("Message too long, truncating...");
+    cleanedMessage = cleanedMessage.substring(0, 4000);
+  }
+
   const response = await openai.createChatCompletion({
     model: "gpt-3.5-turbo",
     messages: [
       {
         role: "system",
-        content: `You're an email assistant and you help me figure out which emails are something I should read and which are not worth my time. 
-        The following are categories I want to avoid: spam, newsletters, sales messages, junk.
-        Answer with "Yes" or "No", then a comma followed by a one-word category to demonstrate your reason.
-        Is the following message something I should read?
-        From: ${from}
-        Subject: ${subject}
-        Snippet: ${snippet}`,
+        content: `
+        You are an email summarizer receiving an email body with the HTML tags stripped out. You have 100 characters to summarize the following message:
+        ${cleanedMessage}
+        tl;dr:`,
       },
     ],
   });
@@ -66,9 +90,13 @@ const classifyMessage = async ({ from, subject, snippet }) => {
 
 // Run the script
 const messageList = await getMessageList();
-const classifiedMessages = await classifyMessages(messageList);
+const summarizedMessages = await summarizeMessages(messageList);
 
 // Log the results
-classifiedMessages.forEach(({ formattedDate, subject, messageLabel, id }) =>
-  console.log(`[${formattedDate}] ${subject} - ${messageLabel} (${id})`)
+summarizedMessages.forEach(({ id, formattedDate, from, subject, summary }) =>
+  console.log(`
+  [${formattedDate}] ${from[0].email} - ${subject} (${id})
+  Summary: ${summary}
+
+  `)
 );

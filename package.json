@@ -6,6 +6,7 @@
   "dependencies": {
     "dotenv": "^16.0.0",
     "nylas": "^6.4.2",
-    "openai": "^3.2.1"
+    "openai": "^3.2.1",
+    "string-strip-html": "^13.2.3"
   }
 }
